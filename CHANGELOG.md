@@ -70,3 +70,12 @@ First release.
   - An FHS is only reported with a valid CRC. Without one it is an
     encrypted DM1 read with the complementary clock (63 − CLK6-1), which
     turns DM1 into FHS and LT_ADDR 1 into 7.
+- Drone Remote ID (ASTM F3411-22a, EN 4709-002) in Bluetooth 4 advertising
+  (service data UUID 0xFFFA) is decoded without new dependencies.
+  - The advertising line shows the Basic ID, Location/Vector, Self-ID,
+    System and Operator ID fields, e.g. `rid_id=…`, `rid_pos=…`, `rid_alt=…`,
+    `rid_operator_pos=…`; values the drone marks as unknown are left out.
+  - The summary names drones by their UAS ID and lists each with its latest
+    messages.
+  - `synth` has encoders for Remote ID adverts, and an end-to-end test
+    decodes them from IQ.

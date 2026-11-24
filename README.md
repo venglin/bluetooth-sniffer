@@ -42,6 +42,11 @@ HackRF One ──► channelizer (PFB) ──► burst detector ──► GFSK d
   using the least reliable bits.
 - Device names, company IDs and service UUIDs are extracted from
   advertising data.
+- Drone Remote ID (ASTM F3411, EN 4709-002) broadcast over Bluetooth 4 is
+  decoded: the UAS ID and aircraft type, position, altitude, speed and
+  track, the operator's position and ID, and the self-ID text, e.g.
+  `rid_id="1581F5FKD229400EQ5" rid_id_type=serial rid_ua=multirotor`.
+  The summary lists each drone with its latest messages.
 
 **Bluetooth Classic (BR/EDR)**
 - The LAP is read directly from the access code: a BCH(64,30) sync word with
@@ -447,6 +452,10 @@ contains overlapping transmissions.
 ## Limitations
 
 - **LE:** only the LE 1M PHY. LE 2M and LE Coded are not demodulated.
+- **Remote ID:** only the Bluetooth 4 (legacy advertising) broadcast. The
+  same messages sent over Bluetooth 5 Long Range (LE Coded) or Wi-Fi are not
+  received. Authentication messages are reported with their page number
+  only, and signatures are not checked.
 - **Classic EDR:**
   - ACL payloads (2-DHx, 3-DHx) are demodulated, but eSCO EDR (2-EVx, 3-EVx)
     and SCO/eSCO voice payloads are not; their headers are.

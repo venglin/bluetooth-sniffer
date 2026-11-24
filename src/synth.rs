@@ -71,6 +71,47 @@ pub fn connect_ind(
     adv_pdu(0x5, true, true, &p)
 }
 
+/// `ADV_NONCONN_IND` carrying one drone Remote ID message, as a Bluetooth 4
+/// broadcast module sends it: service data for UUID 0xFFFA, application code
+/// 0x0D, message counter, message. It fills the 31 bytes of advertising data.
+pub fn remote_id_adv(adv_addr: [u8; 6], counter: u8, message: &[u8; 25]) -> Vec<u8> {
+    use ble::remoteid::{APP_CODE, SERVICE_UUID};
+    let mut p = adv_addr.to_vec();
+    p.extend_from_slice(&[30, 0x16]);
+    p.extend_from_slice(&SERVICE_UUID.to_le_bytes());
+    p.extend_from_slice(&[APP_CODE, counter]);
+    p.extend_from_slice(message);
+    adv_pdu(0x2, true, false, &p)
+}
+
+/// Remote ID Basic ID message (protocol version 2).
+pub fn rid_basic_id(id_type: u8, ua_type: u8, id: &str) -> [u8; 25] {
+    let mut m = [0u8; 25];
+    m[0] = 0x02;
+    m[1] = (id_type << 4) | (ua_type & 0x0F);
+    let n = id.len().min(20);
+    m[2..2 + n].copy_from_slice(&id.as_bytes()[..n]);
+    m
+}
+
+/// Remote ID Location/Vector message for an airborne aircraft: position in
+/// degrees, geodetic altitude and height above takeoff in metres, ground
+/// speed (≤ 63.75 m/s) and track.
+pub fn rid_location(lat: f64, lon: f64, alt: f32, height: f32, speed: f32, track: u16) -> [u8; 25] {
+    let alt_raw = |a: f32| (((a + 1000.0) * 2.0).round() as u16).to_le_bytes();
+    let mut m = [0u8; 25];
+    m[0] = 0x12;
+    m[1] = 0x20 | if track >= 180 { 0x02 } else { 0 };
+    m[2] = (track % 180) as u8;
+    m[3] = (speed * 4.0).round().min(255.0) as u8;
+    m[5..9].copy_from_slice(&((lat * 1e7).round() as i32).to_le_bytes());
+    m[9..13].copy_from_slice(&((lon * 1e7).round() as i32).to_le_bytes());
+    m[15..17].copy_from_slice(&alt_raw(alt));
+    m[17..19].copy_from_slice(&alt_raw(height));
+    m[21..23].copy_from_slice(&0xFFFFu16.to_le_bytes()); // timestamp unknown
+    m
+}
+
 pub fn data_pdu(llid: u8, nesn: bool, sn: bool, md: bool, payload: &[u8]) -> Vec<u8> {
     let mut v = vec![
         (llid & 3) | ((nesn as u8) << 2) | ((sn as u8) << 3) | ((md as u8) << 4),

@@ -195,6 +195,27 @@ just before the energy onset up to 80 bits after it.
 - **CRC reversal:** the CRC register can be run backwards
   (`crc24_reverse`) to recover the initial value from a received packet.
 
+**Remote ID (`ble/remoteid.rs`).** A Bluetooth 4 Remote ID module fills
+the 31 bytes of advertising data with a single AD structure:
+- service data (type 0x16) for UUID 0xFFFA;
+- the application code 0x0D;
+- a message counter;
+- one 25-byte ASTM F3411 message.
+
+The high nibble of the message's first byte is its type. Successive adverts
+cycle through Basic ID, Location/Vector, Self-ID, System and Operator ID;
+a message pack does not fit into a legacy advert. Fields follow the
+standard's encodings:
+- positions are int32 in units of 1e-7°;
+- altitudes and heights are uint16 in half metres from −1000 m;
+- speed is in 0.25 m/s steps, or 0.75 m/s above 63.75 m/s;
+- the track is 0–179° plus an "east" flag that adds 180°.
+
+The standard's "unknown" values (0,0 position, −1000 m, 255 with the 0.75
+multiplier, 63 m/s vertical, track 361) are left out of the output.
+`report.rs` keeps the latest message of each type per advertiser for the
+summary.
+
 **Decoder (`ble/decoder.rs`)**, for each burst on an LE channel:
 
 1. **Known access addresses.** Correlate the 32-bit window at every
@@ -502,7 +523,11 @@ executable there and checks that the copy answers `--extcap-interfaces`.
   settling time must be dropped. A third test removes one USB transfer
   (131072 samples) from a piconet that sends only POLL, NULL and encrypted
   DM1 packets. At least 80% of the packets after the cut must decode again,
-  all with the true LT_ADDR and packet types.
+  all with the true LT_ADDR and packet types. A fourth test sends Remote ID
+  adverts (Basic ID and Location) and checks the decoded fields.
+- **Remote ID unit tests:** messages built byte by byte from the standard's
+  layout, including the "unknown" values and the 0.75 m/s speed multiplier.
+  They have not been checked against a real drone.
 - **Sensitivity benchmark** (`examples/benchmark.rs`): packet success rate
   versus SNR on synthetic captures with impairments within the
   specification limits (carrier offset and drift, modulation index spread,

@@ -400,3 +400,69 @@ fn relocks_after_lost_samples() {
         decoded.len()
     );
 }
+
+#[test]
+fn decodes_remote_id_adverts() {
+    use btsdr::ble;
+    use btsdr::synth::{
+        BLE_DEV, Scene, ble_packet_bits, remote_id_adv, rid_basic_id, rid_location,
+    };
+    let fs = 20e6;
+    let duration = 0.3;
+    // a drone module alternating Basic ID and Location every 20 ms on channel 38
+    let addr = [0x9C, 0x8B, 0x7A, 0x69, 0x58, 0xC7];
+    let messages = [
+        rid_basic_id(1, 2, "1581F5FKD229400EQ5"),
+        rid_location(52.229676, 21.012229, 152.5, 45.0, 5.25, 270),
+    ];
+    let mut sc = Scene::new(fs, 2426, duration);
+    let mut sent = 0usize;
+    let mut t = 0.005;
+    while t < duration - 0.005 {
+        let pdu = remote_id_adv(addr, sent as u8, &messages[sent % 2]);
+        let bits = ble_packet_bits(ble::ADV_AA, ble::ADV_CRC_INIT, &pdu, 38);
+        sc.add(t, 2426, &bits, BLE_DEV, 0.25, 0.0);
+        sent += 1;
+        t += 0.020;
+    }
+    let noise_rms = 0.25 / 10f32.powf(20.0 / 20.0) * (fs as f32 / 1e6).sqrt();
+    let data = sc.to_ci8(noise_rms, 5);
+
+    let cfg = CaptureConfig {
+        center_mhz: 2426,
+        sample_rate_mhz: 20,
+        channels_mhz: CaptureConfig::default_channels(2426, 20),
+        squelch_db: 8.0,
+        ble: Some(BleConfig::default()),
+        bredr: None,
+        follow: vec![],
+        max_duration: None,
+        record: None,
+        wall_start_ns: 0,
+        status_interval: None,
+    };
+    let out = Arc::new(Mutex::new(Collected::default()));
+    let mut rep = Reporter::new(Box::new(std::io::sink()), true, false);
+    pipeline::run(
+        Box::new(MemorySource::new(data)),
+        cfg,
+        vec![Box::new(Collect(out.clone()))],
+        &mut rep,
+        Arc::new(AtomicBool::new(false)),
+    )
+    .unwrap();
+    let c = out.lock().unwrap();
+    let lines: Vec<String> = c
+        .ble
+        .iter()
+        .filter(|p| p.crc_valid)
+        .map(|p| p.describe())
+        .collect();
+    let count = |s: &str| lines.iter().filter(|l| l.contains(s)).count();
+    let ids = count(" rid_id=\"1581F5FKD229400EQ5\" rid_id_type=serial rid_ua=multirotor");
+    let positions = count(" rid_status=airborne rid_pos=52.2296760,21.0122290 rid_alt=152.5m");
+    assert!(
+        ids + positions + 1 >= sent && ids > 0 && positions > 0,
+        "{ids} Basic ID and {positions} Location of {sent} adverts decoded: {lines:?}"
+    );
+}

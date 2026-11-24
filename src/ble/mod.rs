@@ -2,6 +2,7 @@
 //! CRC-24, and PDU interpretation for human-readable output.
 
 pub mod decoder;
+pub mod remoteid;
 
 use crate::bits::{self, Lfsr7};
 
@@ -246,6 +247,8 @@ pub struct AdvInfo {
     pub name: Option<String>,
     pub company: Option<u16>,
     pub uuids16: Vec<u16>,
+    /// Drone Remote ID message carried as service data (UUID 0xFFFA).
+    pub remote_id: Option<remoteid::Message>,
 }
 
 pub fn parse_ad(data: &[u8]) -> AdvInfo {
@@ -275,6 +278,11 @@ pub fn parse_ad(data: &[u8]) -> AdvInfo {
             }
             0xFF if val.len() >= 2 => {
                 info.company = Some(u16::from_le_bytes([val[0], val[1]]));
+            }
+            0x16 => {
+                if let Some(m) = remoteid::from_service_data(val) {
+                    info.remote_id = Some(m);
+                }
             }
             _ => {}
         }
@@ -318,6 +326,9 @@ pub fn describe_adv_pdu(pdu: &[u8]) -> String {
             if !info.uuids16.is_empty() {
                 let u: Vec<String> = info.uuids16.iter().map(|u| format!("{u:04x}")).collect();
                 s += &format!(" uuid16=[{}]", u.join(","));
+            }
+            if let Some(m) = &info.remote_id {
+                s += &m.describe();
             }
         }
         0x1 if p.len() >= 12 => {
@@ -502,5 +513,28 @@ mod tests {
         assert!(!access_address_plausible(0x0000_0000));
         assert!(!access_address_plausible(0x5555_5555)); // too many transitions
         assert!(access_address_plausible(0x50654A3C));
+    }
+
+    #[test]
+    fn describe_adv_with_remote_id() {
+        use crate::synth::{remote_id_adv, rid_basic_id, rid_location};
+        let addr = [0x01, 0x02, 0x03, 0x04, 0x05, 0xC6];
+        let pdu = remote_id_adv(addr, 3, &rid_basic_id(1, 2, "1581F5FKD229400EQ5"));
+        assert_eq!(pdu.len(), 2 + 6 + 31);
+        assert_eq!(
+            describe_adv_pdu(&pdu),
+            "ADV_NONCONN_IND AdvA=c6:05:04:03:02:01 (random) \
+             rid_id=\"1581F5FKD229400EQ5\" rid_id_type=serial rid_ua=multirotor"
+        );
+        let loc = rid_location(52.229676, 21.012229, 152.5, 45.0, 5.25, 270);
+        let info = parse_ad(&remote_id_adv(addr, 4, &loc)[8..]);
+        assert_eq!(
+            info.remote_id.unwrap().describe(),
+            " rid_status=airborne rid_pos=52.2296760,21.0122290 rid_alt=152.5m \
+             rid_height_takeoff=45.0m rid_speed=5.25m/s rid_vspeed=0.0m/s rid_track=270"
+        );
+        // other service data is not mistaken for Remote ID
+        let info = parse_ad(&[0x05, 0x16, 0x6F, 0xFD, 0x01, 0x02]);
+        assert!(info.remote_id.is_none());
     }
 }

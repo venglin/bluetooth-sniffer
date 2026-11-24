@@ -14,6 +14,9 @@ struct BleDevice {
     packets: u64,
     best_rssi: i8,
     pdu_types: BTreeSet<&'static str>,
+    /// Remote ID messages received, and the latest one of each type.
+    rid_messages: u64,
+    remote_id: BTreeMap<u8, ble::remoteid::Message>,
 }
 
 #[derive(Default)]
@@ -86,6 +89,10 @@ impl Reporter {
                     }
                     if info.company.is_some() {
                         d.company = info.company;
+                    }
+                    if let Some(m) = info.remote_id {
+                        d.rid_messages += 1;
+                        d.remote_id.insert(m.msg_type(), m);
                     }
                 }
             }
@@ -175,6 +182,11 @@ impl Reporter {
                 devs.sort_by_key(|d| std::cmp::Reverse(d.1.packets));
                 for (addr, d) in devs.iter().take(50) {
                     let mut name = d.name.clone().unwrap_or_default();
+                    if let Some(ble::remoteid::Message::BasicId { id, .. }) = d.remote_id.get(&0) {
+                        if name.is_empty() {
+                            name = format!("Remote ID {id}");
+                        }
+                    }
                     if let Some(c) = d.company {
                         if name.is_empty() {
                             name = format!("(company 0x{c:04x})");
@@ -193,6 +205,20 @@ impl Reporter {
                 }
                 if devs.len() > 50 {
                     s += &format!("  ... and {} more\n", devs.len() - 50);
+                }
+                // every drone, with the latest message of each informative type
+                for (addr, d) in devs.iter().filter(|d| d.1.rid_messages > 0) {
+                    let fields: String = d
+                        .remote_id
+                        .values()
+                        .filter(|m| matches!(m.msg_type(), 0 | 1 | 3 | 4 | 5))
+                        .map(|m| m.describe())
+                        .collect();
+                    s += &format!(
+                        "  Remote ID {}: {} messages{fields}\n",
+                        ble::fmt_addr(*addr),
+                        d.rid_messages
+                    );
                 }
             }
             let conns: Vec<_> = b.connections().collect();
